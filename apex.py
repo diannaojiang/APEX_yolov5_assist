@@ -4,6 +4,8 @@ from aim_csgo.cs_model import load_model
 import cv2
 import win32gui
 import win32con
+import os
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 import torch
 import numpy as np
 
@@ -21,6 +23,11 @@ import os
 from simple_pid import PID
 
 from widget import ui_mainFrom
+
+import dxcam
+
+torch.backends.cuda.matmul.allow_tf32 = True
+torch.backends.cudnn.allow_tf32 = True
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--model-path', type=str, default='weights/1best.pt', help='模型位址 model address')
@@ -42,7 +49,7 @@ parser.add_argument('--region', type=list, default=[0.18, 0.35],
                     help='檢測範圍；分别为x軸和y軸，(1.0, 1.0)表示全屏檢測，越低檢測範圍越小(以屏幕中心為檢測中心)')
 
 parser.add_argument('--hold-lock', type=bool, default=True, help='lock模式；True為按住，False為切換')
-parser.add_argument('--lock-sen', type=float, default=1.0, help='lock幅度系數,遊戲中靈敏度(建議不要調整)')
+parser.add_argument('--lock-sen', type=float, default=3.0, help='lock幅度系數,遊戲中靈敏度(建議不要調整)')
 parser.add_argument('--lock-smooth', type=float, default=0.20, help='lock平滑系数；越大越平滑')
 parser.add_argument('--lock-button', type=str, default='right', help='lock按鍵；只支持鼠標按键')
 parser.add_argument('--head-first', type=bool, default=False, help='是否優先瞄頭')
@@ -78,6 +85,7 @@ top_x, top_y = int(top_x + x // 2 * (1. - args.region[0])), int(top_y + y // 2 *
 monitor = {'left': top_x, 'top': top_y, 'width': len_x, 'height': len_y}
 
 model = load_model(args)
+model = torch.compile(model)
 stride = int(model.stride.max())
 names = model.module.names if hasattr(model, 'module') else model.names
 
@@ -99,25 +107,53 @@ if args.show_window:
 exit_loop = False
 lock_mode_toggle = True
 
-def on_click(x, y, button, pressed):
+# def on_click(x, y, button, pressed):
+#     global lock_mode
+#     if button == eval('pynput.mouse.Button.' + args.lock_button):
+#         if args.hold_lock:
+#             if pressed:
+#                 lock_mode = True
+#                 # globals()['lock_mode_toggle'] = True
+#                 print('locking...')
+#             else:
+#                 lock_mode = False
+#                 print('lock mode off')
+#                 # globals()['lock_mode_toggle'] = False
+#         else:
+#             if pressed:
+#                 lock_mode = not lock_mode
+#                 print('lock mode', 'on' if lock_mode else 'off')
+
+
+# listener = pynput.mouse.Listener(on_click=on_click)
+# listener.start()
+
+def on_press(button):
     global lock_mode
-    if button == eval('pynput.mouse.Button.' + args.lock_button):
+    if button == pynput.keyboard.KeyCode.from_char('x'):
         if args.hold_lock:
+            lock_mode = True
+            # globals()['lock_mode_toggle'] = True
+            print('locking...')
+        else:
             if pressed:
-                lock_mode = True
-                # globals()['lock_mode_toggle'] = True
-                print('locking...')
-            else:
-                lock_mode = False
-                print('lock mode off')
-                # globals()['lock_mode_toggle'] = False
+                lock_mode = not lock_mode
+                print('lock mode', 'on' if lock_mode else 'off')
+
+def on_release(button):
+    global lock_mode
+    if button == pynput.keyboard.KeyCode.from_char('x'):
+        if args.hold_lock:
+            lock_mode = False
+            # globals()['lock_mode_toggle'] = True
+            print('locking...')
         else:
             if pressed:
                 lock_mode = not lock_mode
                 print('lock mode', 'on' if lock_mode else 'off')
 
 
-listener = pynput.mouse.Listener(on_click=on_click)
+listener = pynput.keyboard.Listener(on_press=on_press,on_release=on_release)
 listener.start()
 
 print('enjoy yourself!')
@@ -151,17 +187,33 @@ class Mythread(QThread):
                 time.sleep(1)
                 print("globals()['lock_mode_toggle'] ", globals()['lock_mode_toggle'])
                 continue
-            if cnt % 20 == 0:
+            if cnt % 100 == 0:
                 top_x, top_y, x, y = get_parameters()
                 len_x, len_y = int(x * args.region[0]), int(y * args.region[1])
                 top_x, top_y = int(top_x + x // 2 * (1. - args.region[0])), int(top_y + y // 2 * (1. - args.region[1]))
                 monitor = {'left': top_x, 'top': top_y, 'width': len_x, 'height': len_y}
-                cnt = 0
+                #cnt = 0
 
             if args.use_mss:
-                t1 = time.time()
+                # t1 = time.time()
                 img0 = grab_screen_mss(monitor)
                 img0 = cv2.resize(img0, (len_x, len_y))
+                # region = (monitor['left'], monitor['top'], monitor['left']+monitor['width'], monitor['top']+monitor['height'])
+                # frame = camera.grab(region=region)
+                # if frame is not None:
+                #     npimg = frame
+
+                # try:
+                #     npimg = camera.get_latest_frame()
+                # except:
+                #     continue    
+
+                #print(type(npimg))
+                # try:
+                #     img0 = cv2.cvtColor(np.array(npimg), cv2.COLOR_BGRA2RGB)
+                # except:
+                #     continue    
+                # img0 = cv2.resize(np.array(npimg), (len_x, len_y))
                 # print('111', time.time() -t1)
             else:
                 t2 = time.time()
@@ -227,6 +279,11 @@ class Mythread(QThread):
                 if args.top_most:
                     self.showTopMost.emit()
                 cv2.waitKey(1)
+            else:
+                if cnt % 100 == 0:
+                    print(100. / (time.time() - t0))
+                    cnt = 0
+                    t0 = time.time()
             cnt += 1
             if globals()['exit_loop'] == True:
                 break
@@ -254,7 +311,10 @@ def setParam(ui):
 def exit_loop_func():
     globals()['exit_loop'] = True
 
-
+# print(dxcam.device_info())
+# print(dxcam.output_info())
+# camera = dxcam.create(device_idx=0, output_idx=0, output_color="BGR")  # returns a DXCamera instance on primary monitor
+# camera.start(target_fps=120,region=(1574, 702, 2265, 1458), video_mode=True)
 
 app = QApplication(sys.argv)
 main_window = QMainWindow()
@@ -265,7 +325,7 @@ auto_ui_window.pushButton.clicked.connect(lambda: setParam(auto_ui_window))
 auto_ui_window.exit_btn.clicked.connect(lambda: exit_loop_func())
 auto_ui_window.exit_btn.clicked.connect(lambda: os._exit(0))  # 强退进程
 
-main_window.setWindowTitle('Apex 辅助')
+main_window.setWindowTitle('A1p1e1x 辅1助')
 main_window.show()
 
 # 瞄准线程实例化
@@ -281,6 +341,8 @@ main_window.activateWindow()
 app.exec()
 exit_loop_func()
 
+# camera.stop()
+# del camera
 # 等待AI线程结束
 time.sleep(1)
 os._exit(0)  # 强退进程

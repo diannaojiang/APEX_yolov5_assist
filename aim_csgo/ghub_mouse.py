@@ -1,5 +1,6 @@
 from ctypes import windll, c_long, c_ulong, Structure, Union, c_int, POINTER, sizeof, CDLL
 from os import path
+import pyautogui
 
 basedir = path.dirname(path.abspath(__file__))
 dlldir = path.join(basedir, 'ghub_mouse.dll')
@@ -12,7 +13,10 @@ DWORD = c_ulong
 ULONG_PTR = POINTER(DWORD)
 gm = CDLL(dlldir)
 gmok = gm.mouse_open()
+#gmok = False
 
+pyautogui.PAUSE = 0.01
+pyautogui.FAILSAFE = False
 
 class MOUSEINPUT(Structure):
     _fields_ = (('dx', LONG),
@@ -39,7 +43,7 @@ def SendInput(*inputs):
     pInputs = LPINPUT(*inputs)
     cbSize = c_int(sizeof(INPUT))
     return windll.user32.SendInput(nInputs, pInputs, cbSize)
-
+    #win32api.mouse_event(win32con.MOUSEEVENTF_MOVE, int(dx), int(dy), 0, 0)
 
 def Input(structure):
     return INPUT(0, _INPUTunion(mi=structure))
@@ -56,7 +60,7 @@ def Mouse(flags, x=0, y=0, data=0):
 def mouse_xy(x, y):  # for import
     if gmok:
         return gm.moveR(x, y)
-
+    #return pyautogui.moveTo(x, y)
     return SendInput(Mouse(0x0001, x, y))
 
 
